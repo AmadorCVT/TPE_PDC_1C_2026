@@ -19,3 +19,10 @@
 
 ## AUTENTICACION
 El servidor debe autenticar a los clientes, o hace con una tabla.
+El handler utiliza una maquina de estados para saber que tiene que hacer.
+
+## Como arrancar el trabajo
+recomendacio: en la primera implementacion no tener nada de sock5, sino tener un echo server que responda de forma optimista. Luego es que se va a ir agregando un handler de lectura para el protocolo socks.
+
+paralelizar entre parsear socks y parsear su propio protocolo
+
