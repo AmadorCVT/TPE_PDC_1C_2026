@@ -4,3 +4,6 @@
 # Build artifacts
 bin/
 obj/
+
+# Guía para agentes de IA (local only)
+AGENTS.md

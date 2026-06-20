@@ -13,6 +13,8 @@
 
 - Muy importante usar los parches de los profesores, pues arreglan cosas complicadas en las que no quieren q perdamos tiempo.
 
+- Borrar el -g al Makefile.inc cuando entreguemos
+
 
 ### Lo primero que hay q hacer es aplicar los parches, en orden.
 
