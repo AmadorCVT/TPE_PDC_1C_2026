@@ -1,3 +1,7 @@
 # Prerequisites
 *.d
+
+# Build artifacts
+bin/
+obj/
 AGENTS.md

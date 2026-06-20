@@ -1,8 +1,10 @@
 include ./Makefile.inc
 
-SERVER_SOURCES=$(wildcard src/server/*.c)
-CLIENT_SOURCES=$(wildcard src/client/*.c)
-SHARED_SOURCES=$(wildcard src/shared/*.c)
+# Los *_test.c son tests unitarios (cada uno tiene su propio main) y NO deben
+# entrar en los binarios server/client: se excluyen del build.
+SERVER_SOURCES=$(filter-out %_test.c,$(wildcard src/server/*.c))
+CLIENT_SOURCES=$(filter-out %_test.c,$(wildcard src/client/*.c))
+SHARED_SOURCES=$(filter-out %_test.c,$(wildcard src/shared/*.c))
 
 SERVER_OBJECTS=$(SERVER_SOURCES:src/%.c=obj/%.o)
 CLIENT_OBJECTS=$(CLIENT_SOURCES:src/%.c=obj/%.o)
@@ -14,7 +16,7 @@ OBJECTS_FOLDER=./obj
 SERVER_OUTPUT_FILE=$(OUTPUT_FOLDER)/server
 CLIENT_OUTPUT_FILE=$(OUTPUT_FOLDER)/client
 
-all: client server
+all: server
 server: $(SERVER_OUTPUT_FILE)
 client: $(CLIENT_OUTPUT_FILE)
 

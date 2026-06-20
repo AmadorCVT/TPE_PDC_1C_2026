@@ -1,14 +1,10 @@
 /**
- * main.c - servidor proxy socks concurrente
+ * main.c - servidor de echo concurrente (sockets no bloqueantes)
  *
- * Interpreta los argumentos de línea de comandos, y monta un socket
- * pasivo.
+ * Interpreta los argumentos de línea de comandos, monta un socket pasivo
+ * y delega cada conexión entrante al handler de echo.
  *
- * Todas las conexiones entrantes se manejarán en éste hilo.
- *
- * Se descargará en otro hilos las operaciones bloqueantes (resolución de
- * DNS utilizando getaddrinfo), pero toda esa complejidad está oculta en
- * el selector.
+ * Todas las conexiones se manejan en este único hilo mediante el selector.
  */
 #include <stdio.h>
 #include <string.h>
@@ -23,9 +19,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
-#include "socks5.h"
 #include "selector.h"
-#include "socks5nio.h"
+#include "echo.h"
 
 static bool done = false;
 
@@ -37,7 +32,7 @@ sigterm_handler(const int signal) {
 
 int
 main(const int argc, const char **argv) {
-    unsigned port = 1080;
+    unsigned port = 9090;
 
     if(argc == 1) {
         // utilizamos el default
@@ -117,12 +112,12 @@ main(const int argc, const char **argv) {
         err_msg = "unable to create selector";
         goto finally;
     }
-    const struct fd_handler socksv5 = {
-        .handle_read       = socksv5_passive_accept,
+    const struct fd_handler echo = {
+        .handle_read       = echo_passive_accept,
         .handle_write      = NULL,
-        .handle_close      = NULL, // nada que liberar
+        .handle_close      = NULL, // el socket pasivo no aloca nada
     };
-    ss = selector_register(selector, server, &socksv5,
+    ss = selector_register(selector, server, &echo,
                                               OP_READ, NULL);
     if(ss != SELECTOR_SUCCESS) {
         err_msg = "registering fd";
@@ -156,8 +151,6 @@ finally:
         selector_destroy(selector);
     }
     selector_close();
-
-    socksv5_pool_destroy();
 
     if(server >= 0) {
         close(server);
