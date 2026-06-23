@@ -148,7 +148,7 @@ enum request_state
 request_consume(buffer *rb, struct request_parser *p, bool *error) {
     enum request_state st = p->state;
 
-    while (buffer_can_read(rb) && !request_is_done(st, error)) {
+    while (!request_is_done(st, error) && buffer_can_read(rb)) {
         const uint8_t c = buffer_read(rb);
         st = request_parser_feed(p, c);
     }

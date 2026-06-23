@@ -62,7 +62,7 @@ enum hello_state
 hello_consume(buffer *rb, struct hello_parser *p, bool *error) {
     enum hello_state st = p->state;
 
-    while (buffer_can_read(rb) && !hello_is_done(st, error)) {
+    while (!hello_is_done(st, error) && buffer_can_read(rb)) {
         const uint8_t c = buffer_read(rb);
         st = hello_parser_feed(p, c);
     }
