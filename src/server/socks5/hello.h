@@ -1,5 +1,5 @@
-#ifndef HELLO_H_1234567890abcdef
-#define HELLO_H_1234567890abcdef
+#ifndef HELLO_H_
+#define HELLO_H_
 
 /**
  * hello.h - parser del mensaje HELLO de SOCKS5 (RFC 1928)
