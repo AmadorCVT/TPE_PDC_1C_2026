@@ -1,8 +1,10 @@
 include ./Makefile.inc
 
+COMPILER_FLAGS += -Isrc/server/socks5 -pthread
+
 # Los *_test.c son tests unitarios (cada uno tiene su propio main) y NO deben
 # entrar en los binarios server/client: se excluyen del build.
-SERVER_SOURCES=$(filter-out %_test.c,$(wildcard src/server/*.c))
+SERVER_SOURCES=$(filter-out %_test.c,$(wildcard src/server/*.c) $(wildcard src/server/socks5/*.c))
 CLIENT_SOURCES=$(filter-out %_test.c,$(wildcard src/client/*.c))
 SHARED_SOURCES=$(filter-out %_test.c,$(wildcard src/shared/*.c))
 
@@ -29,9 +31,7 @@ $(CLIENT_OUTPUT_FILE): $(CLIENT_OBJECTS) $(SHARED_OBJECTS)
 	$(COMPILER) $(COMPILER_FLAGS) $(LD_FLAGS) $(CLIENT_OBJECTS) $(SHARED_OBJECTS) -o $(CLIENT_OUTPUT_FILE)
 
 obj/%.o: src/%.c
-	mkdir -p $(OBJECTS_FOLDER)/server
-	mkdir -p $(OBJECTS_FOLDER)/client
-	mkdir -p $(OBJECTS_FOLDER)/shared
+	mkdir -p $(@D)
 	$(COMPILER) $(COMPILER_FLAGS) -c $< -o $@
 
 clean:
