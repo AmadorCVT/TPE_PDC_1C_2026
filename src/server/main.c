@@ -1,15 +1,14 @@
 /**
- * main.c - servidor de echo concurrente (sockets no bloqueantes)
+ * main.c - servidor proxy SOCKS5 (sockets no bloqueantes)
  *
  * Interpreta los argumentos de línea de comandos, monta un socket pasivo
- * y delega cada conexión entrante al handler de echo.
+ * y delega cada conexión entrante a la máquina de estados de socks5nio.
  *
  * Todas las conexiones se manejan en este único hilo mediante el selector.
  */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <limits.h>
 #include <errno.h>
 #include <signal.h>
 
@@ -17,39 +16,33 @@
 #include <sys/types.h>   // socket
 #include <sys/socket.h>  // socket
 #include <netinet/in.h>
-#include <netinet/tcp.h>
+#include <arpa/inet.h>   // inet_pton
 
 #include "selector.h"
-#include "echo.h"
+#include "args.h"
+#include "socks5nio.h"
 
 static bool done = false;
 
 static void
 sigterm_handler(const int signal) {
-    printf("signal %d, cleaning up and exiting\n",signal);
+    printf("signal %d, cleaning up and exiting\n", signal);
     done = true;
 }
 
 int
-main(const int argc, const char **argv) {
-    unsigned port = 9090;
+main(const int argc, char **argv) {
+    struct socks5args args;
+    parse_args(argc, argv, &args);
 
-    if(argc == 1) {
-        // utilizamos el default
-    } else if(argc == 2) {
-        char *end     = 0;
-        const long sl = strtol(argv[1], &end, 10);
-
-        if (end == argv[1]|| '\0' != *end 
-           || ((LONG_MIN == sl || LONG_MAX == sl) && ERANGE == errno)
-           || sl < 0 || sl > USHRT_MAX) {
-            fprintf(stderr, "port should be an integer: %s\n", argv[1]);
-            return 1;
+    // cargamos los usuarios habilitados para autenticación usuario/contraseña
+    for(unsigned i = 0; i < MAX_USERS; i++) {
+        if(args.users[i].name != NULL && args.users[i].pass != NULL) {
+            if(!socks5_add_user(args.users[i].name, args.users[i].pass)) {
+                fprintf(stderr, "could not register user: %s\n",
+                        args.users[i].name);
+            }
         }
-        port = sl;
-    } else {
-        fprintf(stderr, "Usage: %s <port>\n", argv[0]);
-        return 1;
     }
 
     // no tenemos nada que leer de stdin
@@ -57,21 +50,25 @@ main(const int argc, const char **argv) {
 
     const char       *err_msg = NULL;
     selector_status   ss      = SELECTOR_SUCCESS;
-    fd_selector selector      = NULL;
+    fd_selector       selector = NULL;
+    int               server   = -1;
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
-    addr.sin_family      = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port        = htons(port);
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(args.socks_port);
+    if(args.socks_addr == NULL ||
+       inet_pton(AF_INET, args.socks_addr, &addr.sin_addr) != 1) {
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    }
 
-    const int server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(server < 0) {
         err_msg = "unable to create socket";
         goto finally;
     }
 
-    fprintf(stdout, "Listening on TCP port %d\n", port);
+    fprintf(stdout, "Listening on TCP port %d\n", args.socks_port);
 
     // man 7 ip. no importa reportar nada si falla.
     setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
@@ -81,7 +78,7 @@ main(const int argc, const char **argv) {
         goto finally;
     }
 
-    if (listen(server, 20) < 0) {
+    if(listen(server, 20) < 0) {
         err_msg = "unable to listen";
         goto finally;
     }
@@ -112,13 +109,12 @@ main(const int argc, const char **argv) {
         err_msg = "unable to create selector";
         goto finally;
     }
-    const struct fd_handler echo = {
-        .handle_read       = echo_passive_accept,
-        .handle_write      = NULL,
-        .handle_close      = NULL, // el socket pasivo no aloca nada
+    const struct fd_handler socksv5 = {
+        .handle_read  = socksv5_passive_accept,
+        .handle_write = NULL,
+        .handle_close = NULL, // el socket pasivo no aloca nada
     };
-    ss = selector_register(selector, server, &echo,
-                                              OP_READ, NULL);
+    ss = selector_register(selector, server, &socksv5, OP_READ, NULL);
     if(ss != SELECTOR_SUCCESS) {
         err_msg = "registering fd";
         goto finally;
@@ -151,6 +147,8 @@ finally:
         selector_destroy(selector);
     }
     selector_close();
+
+    socksv5_pool_destroy();
 
     if(server >= 0) {
         close(server);
