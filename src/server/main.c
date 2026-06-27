@@ -22,12 +22,16 @@
 #include "args.h"
 #include "socks5nio.h"
 
-static bool done = false;
+static volatile sig_atomic_t shutdown_requested = 0;
+static volatile sig_atomic_t force_shutdown     = 0;
 
 static void
 sigterm_handler(const int signal) {
-    printf("signal %d, cleaning up and exiting\n", signal);
-    done = true;
+    if(shutdown_requested) {
+        force_shutdown = 1;
+    } else {
+        shutdown_requested = 1;
+    }
 }
 
 int
@@ -119,17 +123,30 @@ main(const int argc, char **argv) {
         err_msg = "registering fd";
         goto finally;
     }
-    for(;!done;) {
+    bool draining = false;
+    while(!force_shutdown) {
         err_msg = NULL;
         ss = selector_select(selector);
         if(ss != SELECTOR_SUCCESS) {
             err_msg = "serving";
             goto finally;
         }
+
+        if(shutdown_requested && !draining) {
+            draining = true;
+            // dejamos de aceptar nuevas conexiones y drenamos las vivas
+            selector_unregister_fd(selector, server);
+            close(server);
+            server = -1;
+            fprintf(stdout, "graceful shutdown: no se aceptan nuevas conexiones, "
+                            "esperando %u conexiones activas\n",
+                    socksv5_active_connections());
+        }
+        if(draining && socksv5_active_connections() == 0) {
+            break;
+        }
     }
-    if(err_msg == NULL) {
-        err_msg = "closing";
-    }
+    // salida limpia del loop (drenaje completo o apagado forzoso)
 
     int ret = 0;
 finally:

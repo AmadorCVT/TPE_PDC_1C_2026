@@ -30,6 +30,13 @@ void
 socksv5_pool_destroy(void);
 
 /**
+ * Cantidad de conexiones SOCKS5 vivas. Usado por el graceful shutdown para
+ * saber cuándo drenaron todas las conexiones existentes.
+ */
+unsigned
+socksv5_active_connections(void);
+
+/**
  * Registra un usuario habilitado para autenticarse con USER/PASS (RFC 1929).
  *
  * Si hay al menos un usuario registrado el servidor exige autenticación

@@ -287,6 +287,14 @@ static const unsigned  max_pool  = 50;
 static unsigned        pool_size = 0;
 static struct socks5  *pool      = NULL;
 
+/** conexiones SOCKS5 vivas; usado para el graceful shutdown */
+static unsigned        current_connections = 0;
+
+unsigned
+socksv5_active_connections(void) {
+    return current_connections;
+}
+
 /** crea (o recicla del pool) el estado de una nueva conexión SOCKS5 */
 static struct socks5 *
 socks5_new(const int client_fd) {
@@ -317,6 +325,7 @@ socks5_new(const int client_fd) {
     stm_init(&ret->stm);
 
     ret->references = 1;
+    current_connections++;
     return ret;
 }
 
@@ -340,6 +349,7 @@ socks5_destroy(struct socks5 *s) {
         return;
     }
     if (s->references == 1) {
+        current_connections--;
         // recursos por-conexión que NO deben sobrevivir al reuso por pool
         if (s->origin_resolution != NULL) {
             freeaddrinfo(s->origin_resolution);
