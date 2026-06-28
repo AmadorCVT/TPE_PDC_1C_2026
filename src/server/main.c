@@ -21,6 +21,7 @@
 #include "selector.h"
 #include "args.h"
 #include "socks5nio.h"
+#include "mng_server.h"
 
 static volatile sig_atomic_t shutdown_requested = 0;
 static volatile sig_atomic_t force_shutdown     = 0;
@@ -56,6 +57,7 @@ main(const int argc, char **argv) {
     selector_status   ss      = SELECTOR_SUCCESS;
     fd_selector       selector = NULL;
     int               server   = -1;
+    int               mng_server = -1;
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -123,6 +125,14 @@ main(const int argc, char **argv) {
         err_msg = "registering fd";
         goto finally;
     }
+
+    mng_server = mng_server_init(args.mng_addr, args.mng_port, selector);
+    if(mng_server < 0) {
+        err_msg = "unable to initialize management server";
+        goto finally;
+    }
+    fprintf(stdout, "Management listening on TCP port %d\n", args.mng_port);
+
     bool draining = false;
     while(!force_shutdown) {
         err_msg = NULL;
@@ -138,6 +148,13 @@ main(const int argc, char **argv) {
             selector_unregister_fd(selector, server);
             close(server);
             server = -1;
+
+            if(mng_server >= 0) {
+                selector_unregister_fd(selector, mng_server);
+                close(mng_server);
+                mng_server = -1;
+            }
+
             fprintf(stdout, "graceful shutdown: no se aceptan nuevas conexiones, "
                             "esperando %u conexiones activas\n",
                     socksv5_active_connections());
@@ -169,6 +186,9 @@ finally:
 
     if(server >= 0) {
         close(server);
+    }
+    if(mng_server >= 0) {
+        close(mng_server);
     }
     return ret;
 }

@@ -37,6 +37,18 @@ unsigned
 socksv5_active_connections(void);
 
 /**
+ * Cantidad histórica de conexiones SOCKS5 establecidas.
+ */
+unsigned long long
+socksv5_historical_connections(void);
+
+/**
+ * Cantidad de bytes transferidos a través del proxy.
+ */
+unsigned long long
+socksv5_bytes_transferred(void);
+
+/**
  * Registra un usuario habilitado para autenticarse con USER/PASS (RFC 1929).
  *
  * Si hay al menos un usuario registrado el servidor exige autenticación
@@ -47,5 +59,14 @@ socksv5_active_connections(void);
  */
 bool
 socks5_add_user(const char *user, const char *pass);
+
+/**
+ * Remueve un usuario de la tabla de autenticación.
+ *
+ * @return 0 si se removió con éxito, -1 si el usuario no fue encontrado o
+ *         los argumentos son inválidos.
+ */
+int
+socks5_remove_user(const char *user);
 
 #endif

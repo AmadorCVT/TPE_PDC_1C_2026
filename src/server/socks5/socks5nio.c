@@ -261,6 +261,27 @@ socks5_add_user(const char *user, const char *pass) {
     return true;
 }
 
+int
+socks5_remove_user(const char *user) {
+    if (user == NULL) {
+        return -1;
+    }
+    for (unsigned i = 0; i < SOCKS5_MAX_USERS; i++) {
+        if (users[i].in_use && strcmp(users[i].user, user) == 0) {
+            users[i].in_use = false;
+            // Shift subsequent users left to compact the array and keep it contiguous
+            for (unsigned j = i; j < SOCKS5_MAX_USERS - 1; j++) {
+                users[j] = users[j + 1];
+            }
+            // Clear the last element just in case
+            memset(&users[SOCKS5_MAX_USERS - 1], 0, sizeof(struct socks5_user));
+            users_count--;
+            return 0;
+        }
+    }
+    return -1;
+}
+
 /** ¿el servidor exige autenticación usuario/contraseña? */
 static bool
 socks5_auth_required(void) {
@@ -289,10 +310,22 @@ static struct socks5  *pool      = NULL;
 
 /** conexiones SOCKS5 vivas; usado para el graceful shutdown */
 static unsigned        current_connections = 0;
+static unsigned long long historical_connections = 0;
+static unsigned long long bytes_transferred = 0;
 
 unsigned
 socksv5_active_connections(void) {
     return current_connections;
+}
+
+unsigned long long
+socksv5_historical_connections(void) {
+    return historical_connections;
+}
+
+unsigned long long
+socksv5_bytes_transferred(void) {
+    return bytes_transferred;
 }
 
 /** crea (o recicla del pool) el estado de una nueva conexión SOCKS5 */
@@ -326,6 +359,7 @@ socks5_new(const int client_fd) {
 
     ret->references = 1;
     current_connections++;
+    historical_connections++;
     return ret;
 }
 
@@ -1031,6 +1065,7 @@ copy_read(struct selector_key *key) {
 
     if (n > 0) {
         buffer_write_adv(d->rb, n);
+        bytes_transferred += n;
     } else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
         // EOF o error de lectura: cerramos la mitad de lectura
         d->duplex &= ~OP_READ;
@@ -1048,6 +1083,9 @@ copy_write(struct selector_key *key) {
 
     if (n >= 0) {
         buffer_read_adv(d->wb, n);
+        if (n > 0) {
+            bytes_transferred += n;
+        }
     } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
         d->duplex &= ~OP_WRITE;
         shutdown(*d->fd, SHUT_WR);
