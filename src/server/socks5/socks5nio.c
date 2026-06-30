@@ -14,6 +14,7 @@
 #include <stdbool.h>
 #include <assert.h>
 #include <errno.h>
+#include <time.h>
 #include <unistd.h>   // close
 #include <pthread.h>
 
@@ -132,6 +133,9 @@ struct socks5 {
     char                          dest_fqdn[0x100];
     uint16_t                      dest_port;   // host byte order
 
+    /** usuario autenticado, o "anonymous" si no hubo autenticación */
+    char                          client_username[256];
+
     /** máquina de estados */
     struct state_machine          stm;
 
@@ -166,6 +170,7 @@ static void socksv5_write  (struct selector_key *key);
 static void socksv5_block  (struct selector_key *key);
 static void socksv5_close  (struct selector_key *key);
 static void socksv5_done   (struct selector_key *key);
+static void log_access     (struct socks5 *s);
 
 static const struct fd_handler socks5_handler = {
     .handle_read   = socksv5_read,
@@ -348,6 +353,8 @@ socks5_new(const int client_fd) {
     ret->client_fd       = client_fd;
     ret->origin_fd       = -1;
     ret->client_addr_len = sizeof(ret->client_addr);
+    strncpy(ret->client_username, "anonymous", sizeof(ret->client_username) - 1);
+    ret->client_username[sizeof(ret->client_username) - 1] = '\0';
 
     buffer_init(&ret->read_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
     buffer_init(&ret->write_buffer, N(ret->raw_buff_b), ret->raw_buff_b);
@@ -561,10 +568,15 @@ auth_read_init(const unsigned state, struct selector_key *key) {
 }
 
 static unsigned
-auth_process(struct auth_st *d) {
+auth_process(struct auth_st *d, struct socks5 *s) {
     d->status = socks5_check_credentials(d->result.username, d->result.password)
                   ? SOCKS_AUTH_SUCCESS
                   : SOCKS_AUTH_FAILURE;
+    if (d->status == SOCKS_AUTH_SUCCESS) {
+        strncpy(s->client_username, d->result.username,
+                sizeof(s->client_username) - 1);
+        s->client_username[sizeof(s->client_username) - 1] = '\0';
+    }
     if (auth_marshall(d->wb, d->status) == -1) {
         return ERROR;
     }
@@ -585,7 +597,7 @@ auth_read(struct selector_key *key) {
         const enum auth_state st = auth_consume(d->rb, &d->parser, &error);
         if (auth_is_done(st, 0)) {
             if (SELECTOR_SUCCESS == selector_set_interest_key(key, OP_WRITE)) {
-                ret = auth_process(d);
+                ret = auth_process(d, ATTACHMENT(key));
             } else {
                 ret = ERROR;
             }
@@ -625,6 +637,31 @@ auth_write(struct selector_key *key) {
 ////////////////////////////////////////////////////////////////////
 // REQUEST
 ////////////////////////////////////////////////////////////////////
+
+/** registra un acceso exitoso al destino en access.log */
+static void
+log_access(struct socks5 *s) {
+    const time_t now = time(NULL);
+    struct tm    tm_buf;
+    char         timestamp[32];
+
+    localtime_r(&now, &tm_buf);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &tm_buf);
+
+    char dest_ip[SOCKADDR_TO_HUMAN_MIN];
+    sockaddr_to_human(dest_ip, sizeof(dest_ip),
+                      (const struct sockaddr *) &s->origin_addr);
+
+    const char *fqdn = (s->dest_fqdn[0] != '\0') ? s->dest_fqdn : "-";
+
+    FILE *f = fopen("access.log", "a");
+    if (f == NULL) {
+        return;
+    }
+    fprintf(f, "[%s] User: %s | FQDN: %s | IP Destino: %s\n",
+            timestamp, s->client_username, fqdn, dest_ip);
+    fclose(f);
+}
 
 /** traduce un errno de connect() al código REP de SOCKS5 */
 static uint8_t
@@ -892,6 +929,7 @@ request_connecting(struct selector_key *key) {
     }
     if (err == 0) {
         s->client.request.status = SOCKS_REP_SUCCESS;
+        log_access(s);
         return request_send_reply(key);
     }
 
