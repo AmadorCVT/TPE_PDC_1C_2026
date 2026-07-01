@@ -59,16 +59,16 @@ main(const int argc, char **argv) {
     int               server   = -1;
     int               mng_server = -1;
 
-    struct sockaddr_in addr;
+    struct sockaddr_in6 addr;
     memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(args.socks_port);
+    addr.sin6_family = AF_INET6;
+    addr.sin6_port   = htons(args.socks_port);
     if(args.socks_addr == NULL ||
-       inet_pton(AF_INET, args.socks_addr, &addr.sin_addr) != 1) {
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+       inet_pton(AF_INET6, args.socks_addr, &addr.sin6_addr) != 1) {
+        addr.sin6_addr = in6addr_any;
     }
 
-    server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    server = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
     if(server < 0) {
         err_msg = "unable to create socket";
         goto finally;
@@ -77,6 +77,13 @@ main(const int argc, char **argv) {
     fprintf(stdout, "Listening on TCP port %d\n", args.socks_port);
 
     // man 7 ip. no importa reportar nada si falla.
+
+    int v6only = 0;
+    if(setsockopt(server, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only)) < 0) {
+        err_msg = "unable to set IPV6_ONLY option";
+        goto finally;
+    }
+
     setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
 
     if(bind(server, (struct sockaddr*) &addr, sizeof(addr)) < 0) {
