@@ -1,0 +1,731 @@
+% =============================================================================
+% Proxy SOCKS5 - Trabajo Práctico Especial
+% Protocolos de Comunicación - ITBA - 2026/1
+% =============================================================================
+\documentclass[12pt,a4paper]{article}
+
+% ---- Paquetes ----
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{booktabs}
+\usepackage{verbatim}
+\usepackage{parskip}
+
+% ---- Configuración de listings ----
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny,
+    backgroundcolor=\color{gray!10},
+    rulecolor=\color{gray!30},
+    captionpos=b,
+    tabsize=4,
+    showstringspaces=false,
+    language=C,
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+    commentstyle=\color{green!50!black},
+    literate=
+        {á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+        {Á}{{\'A}}1 {É}{{\'E}}1 {Í}{{\'I}}1 {Ó}{{\'O}}1 {Ú}{{\'U}}1
+        {ñ}{{\~n}}1 {Ñ}{{\~N}}1 {ü}{{\"u}}1 {Ü}{{\"U}}1
+        {¿}{{?`}}1 {¡}{{!`}}1
+}
+
+% ---- Configuración de encabezados ----
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Proxy SOCKS5}
+\fancyhead[R]{Protocolos de Comunicación --- 2026/1}
+\fancyfoot[C]{\thepage}
+
+% ---- Redefinir títulos de secciones ----
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+% ---- Portada ----
+\title{\textbf{Trabajo Práctico Especial}\\[0.5cm]
+       \Large{Proxy SOCKS5}\\[0.3cm]
+       \large{Protocolos de Comunicación --- 2026/1}}
+\author{\textbf{Grupo:} [NOMBRE\_DEL\_GRUPO] \\[0.3cm]
+        [Heras\_Tiago] \\[0.1cm]
+        [Arias\_Mateo] \\[0.1cm]
+        [Vallejo Tapia\_Amador] \\[0.1cm]
+        [García Puente\_Manuel] \\[0.3cm]
+        \textbf{Instituto Tecnológico de Buenos Aires}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+
+% =============================================================================
+% 1. ÍNDICE
+% =============================================================================
+\tableofcontents
+\newpage
+
+% =============================================================================
+% 2. DESCRIPCIÓN DETALLADA DE LOS PROTOCOLOS DISEÑADOS Y APLICACIONES
+% =============================================================================
+\section{Descripción detallada de los protocolos diseñados y aplicaciones desarrolladas}
+
+\subsection{Arquitectura general del servidor proxy SOCKS5}
+
+El servidor proxy SOCKS5 está implementado como una aplicación monohilo que utiliza
+multiplexación de entrada/salida no bloqueante mediante un selector de eventos
+(implementado en \texttt{selector.c}). Todas las conexiones entrantes y salientes
+se manejan en un único hilo de ejecución, con la única excepción de la resolución
+de nombres de dominio (FQDN), que se delega a un hilo auxiliar mediante
+\texttt{getaddrinfo(3)}.
+
+Cada conexión SOCKS5 se modela como una máquina de estados (implementada en
+\texttt{stm.c}) que transiciona a través de las siguientes fases:
+
+\begin{verbatim}
+HELLO_READ -> HELLO_WRITE -> [AUTH_READ -> AUTH_WRITE] -> REQUEST_READ
+    -> REQUEST_RESOLV -> REQUEST_CONNECTING -> REQUEST_WRITE -> COPY
+    -> DONE / ERROR
+\end{verbatim}
+
+\textbf{Descripción de cada fase:}
+
+\begin{itemize}
+    \item \textbf{HELLO}: El cliente envía su versión SOCKS y los métodos de
+          autenticación que soporta. El servidor selecciona el método según su
+          política interna (sin autenticación si no hay usuarios registrados,
+          usuario/contraseña en caso contrario).
+    \item \textbf{AUTH (RFC 1929)}: Si se seleccionó el método de usuario/contraseña,
+          se intercambian las credenciales y se validan contra la tabla de usuarios
+          del servidor.
+    \item \textbf{REQUEST}: El cliente envía el pedido de conexión (comando CONNECT,
+          tipo de dirección y destino). El servidor parsea la solicitud, resuelve
+          el FQDN si es necesario (en un hilo separado), y establece una conexión
+          TCP no bloqueante hacia el servidor de origen.
+    \item \textbf{COPY}: Una vez establecida la conexión, se inicia un túnel
+          bidireccional que copia datos entre el cliente y el servidor de origen
+          hasta que alguna de las partes cierra la conexión.
+\end{itemize}
+
+\subsection{Protocolo de monitoreo y configuración}
+
+\subsubsection{Descripción general}
+
+El protocolo de monitoreo es un protocolo de texto simple sobre TCP, diseñado
+para permitir la administración remota del servidor proxy en tiempo de ejecución
+sin necesidad de reiniciar el servicio. Escucha en un socket pasivo independiente
+del proxy SOCKS5, en un puerto configurable (por defecto 8080).
+
+\subsubsection{Decisiones de diseño}
+
+Se optó por un protocolo basado en texto plano (en lugar de binario) por las
+siguientes razones:
+
+\begin{itemize}
+    \item \textbf{Simplicidad de implementación}: Los comandos son legibles por
+          humanos, lo que facilita la depuración y las pruebas manuales.
+    \item \textbf{Interoperabilidad}: Puede probarse con herramientas estándar
+          como \texttt{nc} (netcat) o \texttt{telnet}.
+    \item \textbf{Baja complejidad}: Dado que el protocolo maneja pocos comandos
+          y respuestas cortas, la sobrecarga del formato texto es despreciable.
+    \item \textbf{Extensibilidad}: Agregar nuevos comandos es trivial.
+\end{itemize}
+
+\subsubsection{Formato de los mensajes}
+
+\paragraph{Formato de los comandos (cliente $\rightarrow$ servidor)}
+
+Cada comando es una línea de texto ASCII terminada en el carácter \texttt{0x0A}
+(\textbackslash n). Opcionalmente puede incluir el carácter \texttt{0x0D}
+(\textbackslash r) antes del salto de línea, el cual es ignorado por el servidor.
+
+\begin{lstlisting}[caption=Gramática del protocolo de monitoreo (formato ABNF)]
+comando     = verbo *(SP argumento) CRLF
+verbo       = 1*ALPHA
+argumento   = 1*(%x21-7E)   ; caracteres imprimibles no espacio
+CRLF        = [CR] LF
+CR          = %x0D
+LF          = %x0A
+SP          = %x20
+\end{lstlisting}
+
+\paragraph{Formato de las respuestas (servidor $\rightarrow$ cliente)}
+
+Cada respuesta es una línea de texto ASCII terminada en \texttt{CRLF}. El primer
+token indica éxito o fracaso:
+
+\begin{itemize}
+    \item \texttt{+OK} seguido de datos opcionales: el comando se ejecutó
+          correctamente.
+    \item \texttt{-ERR} seguido de un mensaje de error: el comando falló.
+\end{itemize}
+
+\begin{lstlisting}[caption=Gramática de las respuestas]
+respuesta    = status [SP datos] CRLF
+status       = "+OK" / "-ERR"
+datos        = 1*(%x20-7E)
+\end{lstlisting}
+
+\subsubsection{Comandos soportados}
+
+\begin{enumerate}
+    \item \textbf{GET\_METRICS}
+    \begin{itemize}
+        \item \textbf{Propósito}: Obtiene las métricas actuales del servidor.
+        \item \textbf{Sintaxis}: \texttt{GET\_METRICS\textbackslash n}
+        \item \textbf{Respuesta exitosa}: \texttt{+OK ACT:<n> HIST:<n> BYTES:<n>\textbackslash r\textbackslash n}
+        \item \textbf{Campos}:
+              \begin{itemize}
+                  \item \texttt{ACT}: Cantidad de conexiones activas en este momento.
+                  \item \texttt{HIST}: Cantidad histórica de conexiones desde el inicio del servidor.
+                  \item \texttt{BYTES}: Cantidad total de bytes transferidos.
+              \end{itemize}
+    \end{itemize}
+
+    \item \textbf{ADD\_USER}
+    \begin{itemize}
+        \item \textbf{Propósito}: Agrega un nuevo usuario autorizado para usar el proxy.
+        \item \textbf{Sintaxis}: \texttt{ADD\_USER <usuario> <contraseña>\textbackslash n}
+        \item \textbf{Respuesta exitosa}: \texttt{+OK\textbackslash r\textbackslash n}
+        \item \textbf{Respuesta de error}: \texttt{-ERR <motivo>\textbackslash r\textbackslash n}
+        \item \textbf{Restricciones}: Máximo 10 usuarios. El nombre de usuario y la
+              contraseña no pueden superar los 255 caracteres cada uno.
+    \end{itemize}
+
+    \item \textbf{DEL\_USER}
+    \begin{itemize}
+        \item \textbf{Propósito}: Elimina un usuario previamente registrado.
+        \item \textbf{Sintaxis}: \texttt{DEL\_USER <usuario>\textbackslash n}
+        \item \textbf{Respuesta exitosa}: \texttt{+OK\textbackslash r\textbackslash n}
+        \item \textbf{Respuesta de error}: \texttt{-ERR user not found\textbackslash r\textbackslash n}
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Flujo de una sesión típica}
+
+\begin{lstlisting}[caption=Ejemplo de sesión de monitoreo]
+Cliente:                        Servidor:
+|  CONECTAR (TCP)               |
+|------------------------------>|
+|  GET_METRICS\n                |
+|------------------------------>|
+|                               |  +OK ACT:3 HIST:150 BYTES:1048576\r\n
+|<------------------------------|
+|  ADD_USER alberto pass123\n   |
+|------------------------------>|
+|                               |  +OK\r\n
+|<------------------------------|
+|  DEL_USER alberto\n           |
+|------------------------------>|
+|                               |  +OK\r\n
+|<------------------------------|
+|  CERRAR CONEXIÓN              |
+|------------------------------>|
+\end{lstlisting}
+
+\subsection{Aplicación cliente de monitoreo}
+
+El cliente de monitoreo es una aplicación de línea de comandos que utiliza I/O
+bloqueante (dada la simplicidad del protocolo). Se conecta al servidor de
+management, envía el comando solicitado y muestra la respuesta.
+
+\subsubsection{Sintaxis}
+
+\begin{lstlisting}[caption=Uso del cliente de monitoreo]
+./bin/client [opciones] <comando>
+
+Opciones:
+  -L <dirección>   Dirección IP del servidor de management (defecto: 127.0.0.1)
+  -P <puerto>      Puerto del servidor de management (defecto: 8080)
+
+Comandos:
+  get-metrics                  Obtiene métricas del servidor
+  add-user <usr> <pass>        Agrega un usuario
+  del-user <usr>               Elimina un usuario
+\end{lstlisting}
+
+\subsubsection{Ejemplos de uso}
+
+\begin{lstlisting}[caption=Ejemplos del cliente de monitoreo]
+$ ./bin/client get-metrics
++OK ACT:0 HIST:12 BYTES:409600
+
+$ ./bin/client add-user juan pass123
++OK
+
+$ ./bin/client del-user juan
++OK
+\end{lstlisting}
+
+\subsection{Métricas del sistema}
+
+El servidor recolecta las siguientes métricas, accesibles a través del comando
+\texttt{GET\_METRICS}:
+
+\begin{itemize}
+    \item \textbf{Conexiones activas} (\texttt{ACT}): Número de conexiones SOCKS5
+          actualmente en curso. Se incrementa al aceptar una nueva conexión y se
+          decrementa al finalizar.
+    \item \textbf{Conexiones históricas} (\texttt{HIST}): Contador acumulativo de
+          todas las conexiones SOCKS5 establecidas desde el inicio del servidor.
+    \item \textbf{Bytes transferidos} (\texttt{BYTES}): Suma total de bytes
+          transferidos en ambas direcciones (cliente $\rightarrow$ proxy y
+          proxy $\rightarrow$ origen) a través del túnel.
+\end{itemize}
+
+Todas las métricas son volátiles: se pierden al reiniciar el servidor.
+
+% =============================================================================
+% 3. PROBLEMAS ENCONTRADOS
+% =============================================================================
+\section{Problemas encontrados durante el diseño y la implementación}
+
+\subsection{[Aca tenemos que poner los problemas que nos surgieron]}
+
+\begin{itemize}
+    \item \textbf{Manejo de lecturas/escrituras parciales}: Durante la fase de
+          COPY, fue necesario implementar un mecanismo robusto que maneje
+          correctamente las lecturas y escrituras parciales, propagando los
+          cierres de conexión de forma adecuada entre ambas mitades del túnel.
+    \item \textbf{Resolución de nombres no bloqueante}: Dado que
+          \texttt{getaddrinfo(3)} es una operación bloqueante, se optó por
+          ejecutarla en un hilo separado y notificar al selector mediante
+          \texttt{selector\_notify\_block}. Esto requirió cuidado para evitar
+          condiciones de carrera en el acceso a las estructuras compartidas.
+    \item \textbf{[Terminar con cosas que tuvimos problemas]}
+\end{itemize}
+
+% =============================================================================
+% 4. LIMITACIONES
+% =============================================================================
+\section{Limitaciones de la aplicación}
+
+\subsection{Registro de accesos bloqueante}
+
+El registro de accesos (\texttt{log\_access}) escribe en el archivo
+\texttt{access.log} utilizando operaciones de E/S bloqueantes
+(\texttt{fopen}, \texttt{fprintf}, \texttt{fclose}) dentro del bucle principal
+de eventos no bloqueante. Esto puede introducir micro-pausas que degradan el
+rendimiento bajo carga elevada. Una mejora posible sería implementar un buffer
+de logs en memoria con escritura asincrónica.
+
+\subsection{Autenticación del protocolo de monitoreo}
+
+El servidor de management no implementa autenticación. Cualquier entidad que
+pueda conectarse al puerto de monitoreo (por defecto 8080 en \texttt{127.0.0.1})
+puede agregar o eliminar usuarios del proxy. Si bien el puerto de monitoreo está
+configurado por defecto para escuchar solo en la interfaz loopback, esta sigue
+siendo una limitación de seguridad.
+
+\subsection{Backlog de conexiones}
+
+El socket pasivo del proxy SOCKS5 se configura con un backlog de 20 conexiones
+(\texttt{listen(server, 20)}). Para soportar 500 clientes concurrentes de forma
+robusta, sería recomendable utilizar \texttt{SOMAXCONN} (generalmente 128 o
+superior).
+
+\subsection{Soporte limitado de comandos SOCKS}
+
+Actualmente solo se implementa el comando \texttt{CONNECT}. Los comandos
+\texttt{BIND} y \texttt{UDP ASSOCIATE} definidos en RFC 1928 no están
+soportados.
+
+\subsection{[Aca podemos agregar mas limitaciones y quizas podemos arreglar algunas de las de arriba]}
+
+% =============================================================================
+% 5. POSIBLES EXTENSIONES
+% =============================================================================
+\section{Posibles extensiones}
+
+\begin{itemize}
+    \item \textbf{Dissector de credenciales (ettercap-like)}: Implementar un
+          módulo de inspección de tráfico en la fase COPY que detecte
+          credenciales enviadas en texto plano en protocolos como POP3, FTP,
+          HTTP Basic, SMTP, etc. Esta funcionalidad está prevista para la
+          segunda entrega del trabajo práctico.
+    \item \textbf{Soporte BIND y UDP ASSOCIATE}: Completar la implementación
+          de los comandos faltantes del RFC 1928.
+    \item \textbf{Autenticación del protocolo de monitoreo}: Agregar un
+          mecanismo de autenticación (contraseña compartida, token, o
+          autenticación mutua) para el servidor de management.
+    \item \textbf{Logging asincrónico}: Reemplazar el registro de accesos
+          bloqueante por un esquema con buffer circular y escritura diferida.
+    \item \textbf{Configuración dinámica extendida}: Permitir cambiar en
+          tiempo de ejecución otros parámetros como timeouts, tamaño de
+          buffers, límite de conexiones concurrentes, etc.
+    \item \textbf{Estadísticas avanzadas}: Agregar métricas como tiempo de
+          vida promedio de conexiones, throughput por usuario, histogramas de
+          tamaño de transferencias, etc.
+\end{itemize}
+
+% =============================================================================
+% 6. CONCLUSIONES
+% =============================================================================
+\section{Conclusiones}
+
+[Aca pongamos unas conclusiones entre todos si quieren]
+
+% =============================================================================
+% 7. EJEMPLOS DE PRUEBA
+% =============================================================================
+\section{Ejemplos de prueba}
+
+\subsection{Prueba básica del proxy SOCKS5}
+
+\begin{lstlisting}[caption=Iniciar el servidor proxy]
+# Iniciar el servidor con un usuario
+$ ./bin/server -u testuser:testpass
+Listening on TCP port 1080
+Management listening on TCP port 8080
+\end{lstlisting}
+
+\begin{lstlisting}[caption=Probar el proxy con curl]
+# Solicitud HTTP a través del proxy SOCKS5 con autenticación
+$ curl --socks5 127.0.0.1:1080 --proxy-user testuser:testpass \
+       http://example.com
+<!doctype html>
+<html>
+...
+\end{lstlisting}
+
+\begin{lstlisting}[caption=Probar el proxy sin autenticación]
+# Iniciar sin usuarios registrados (acepta "sin autenticación")
+$ ./bin/server
+$ curl --socks5 127.0.0.1:1080 http://example.com
+\end{lstlisting}
+
+\subsection{Prueba de monitoreo}
+
+\begin{lstlisting}[caption=Consultar métricas]
+$ ./bin/client get-metrics
++OK ACT:1 HIST:5 BYTES:24576
+\end{lstlisting}
+
+\begin{lstlisting}[caption=Agregar y eliminar usuarios en caliente]
+$ ./bin/client add-user nuevo pass123
++OK
+$ ./bin/client del-user nuevo
++OK
+\end{lstlisting}
+
+\subsection{Prueba de graceful shutdown}
+
+\begin{lstlisting}[caption=Enviar señal SIGTERM al servidor]
+$ kill -TERM <PID_del_servidor>
+# El servidor imprime:
+# graceful shutdown: no se aceptan nuevas conexiones, esperando N conexiones activas
+# (espera a que terminen todas las conexiones activas y luego finaliza)
+\end{lstlisting}
+
+% =============================================================================
+% 8. GUÍA DE INSTALACIÓN
+% =============================================================================
+\section{Guía de instalación}
+
+\subsection{Requisitos del sistema}
+
+\begin{itemize}
+    \item Sistema operativo: Linux (kernel 4.x o superior)
+    \item Compilador: GCC 4.9 o superior (compatible con C11)
+    \item GNU Make 3.81 o superior
+    \item Bibliotecas: libc estándar, pthreads
+\end{itemize}
+
+\subsection{Compilación}
+
+\begin{lstlisting}[caption=Compilar el proyecto desde la raíz]
+$ make clean && make all
+\end{lstlisting}
+
+Este comando genera los siguientes artefactos:
+
+\begin{itemize}
+    \item \texttt{bin/server} --- Servidor proxy SOCKS5
+    \item \texttt{bin/client} --- Cliente de monitoreo
+\end{itemize}
+
+Los archivos objeto intermedios se almacenan en el directorio \texttt{obj/}.
+
+\subsection{Limpieza}
+
+\begin{lstlisting}[caption=Eliminar artefactos compilados]
+$ make clean
+\end{lstlisting}
+
+% =============================================================================
+% 9. INSTRUCCIONES DE CONFIGURACIÓN
+% =============================================================================
+\section{Instrucciones para la configuración}
+
+\subsection{Opciones del servidor}
+
+\begin{lstlisting}[caption=Uso del servidor]
+./bin/server [OPCIONES]
+
+Opciones:
+  -h               Imprime la ayuda y termina.
+  -l <dirección>   Dirección donde servirá el proxy SOCKS (defecto: 0.0.0.0).
+  -L <dirección>   Dirección donde servirá el servicio de management
+                   (defecto: 127.0.0.1).
+  -p <puerto>      Puerto entrante para conexiones SOCKS (defecto: 1080).
+  -P <puerto>      Puerto entrante para conexiones de management
+                   (defecto: 8080).
+  -u <usr>:<pass>  Usuario y contraseña para el proxy. Hasta 10 ocurrencias.
+  -v               Imprime la versión y termina.
+\end{lstlisting}
+
+\subsection{Ejemplos de configuración}
+
+\begin{lstlisting}[caption=Servidor con configuración personalizada]
+# Servidor SOCKS en puerto 2080, management en puerto 9090
+$ ./bin/server -p 2080 -P 9090
+
+# Servidor con dos usuarios predefinidos
+$ ./bin/server -u alice:pass1 -u bob:pass2
+
+# Servidor con management en una interfaz específica
+$ ./bin/server -L 192.168.1.100 -P 9090
+\end{lstlisting}
+
+\subsection{Opciones del cliente de monitoreo}
+
+\begin{lstlisting}[caption=Uso del cliente]
+./bin/client [OPCIONES] <comando>
+
+Opciones:
+  -L <dirección>   Dirección IP del servidor de management (defecto: 127.0.0.1)
+  -P <puerto>      Puerto del servidor de management (defecto: 8080)
+
+Comandos:
+  get-metrics                  Obtiene métricas del servidor
+  add-user <usr> <pass>        Agrega un usuario
+  del-user <usr>               Elimina un usuario
+\end{lstlisting}
+
+% =============================================================================
+% 10. EJEMPLOS DE CONFIGURACIÓN Y MONITOREO
+% =============================================================================
+\section{Ejemplos de configuración y monitoreo}
+
+\subsection{Escenario 1: Servidor básico con monitoreo local}
+
+\begin{lstlisting}[caption=Inicialización y monitoreo]
+# Terminal 1: Iniciar el servidor
+$ ./bin/server -u admin:admin123
+
+# Terminal 2: Consultar métricas iniciales
+$ ./bin/client get-metrics
++OK ACT:0 HIST:0 BYTES:0
+
+# Terminal 2: Agregar un usuario nuevo
+$ ./bin/client add-user desarrollador pass123
++OK
+
+# Terminal 2: Verificar que el usuario se agregó (conectándose al proxy)
+$ curl --socks5 127.0.0.1:1080 --proxy-user desarrollador:pass123 \
+       https://httpbin.org/ip
+
+# Terminal 2: Consultar métricas después de la conexión
+$ ./bin/client get-metrics
++OK ACT:0 HIST:1 BYTES:2048
+\end{lstlisting}
+
+\subsection{Escenario 2: Acceso a un sitio bloqueado}
+
+\begin{lstlisting}[caption=Verificación del registro de accesos]
+# Después de varias conexiones, revisar el archivo de log
+$ cat access.log
+[2026-07-06 20:15:30] User: admin | FQDN: example.com | IP Destino: 93.184.216.34:80
+[2026-07-06 20:16:45] User: admin | FQDN: httpbin.org | IP Destino: 3.220.72.84:443
+\end{lstlisting}
+
+% =============================================================================
+% 11. DOCUMENTO DE DISEÑO
+% =============================================================================
+\section{Documento de diseño del proyecto}
+
+\subsection{Diagrama de módulos}
+
+\begin{verbatim}
++------------------------------------------------------------------+
+|                        bin/server                                 |
+|                                                                   |
+|  +------------------+  +------------------+  +-----------------+  |
+|  |   main.c         |  |   args.c/h       |  |  mng_server.c/h |  |
+|  |  - bucle ppal    |  |  - parseo CLI    |  |  - protocolo    |  |
+|  |  - graceful      |  |  - defaults      |  |    monitoreo    |  |
+|  |    shutdown      |  +------------------+  |  - ADD/DEL_USER |  |
+|  +--------+---------+                       |  - GET_METRICS   |  |
+|           |                                  +--------+--------+  |
+|           v                                           |           |
+|  +------------------+                                  |           |
+|  |  socks5nio.c/h   |<--+                             |           |
+|  |  - stm SOCKS5    |   |                             |           |
+|  |  - HELLO/AUTH/   |   |                             |           |
+|  |    REQUEST/COPY  |   |                             |           |
+|  +--------+---------+   |                             |           |
+|           |             |                             |           |
+|  +--------+---------+   |                             |           |
+|  |  hello.c/h       |   |  parsers                   |           |
+|  |  auth.c/h        |---+  SOCKS5                    |           |
+|  |  request.c/h     |   |                            |           |
+|  +------------------+   |                            |           |
+|                         |                            |           |
+|  +------------------+   |  +------------------+      |           |
+|  |  selector.c/h    |<--+--|  stm.c/h         |      |           |
+|  |  - multiplexor   |      |  - máquina de    |      |           |
+|  |    I/O no blq.   |      |    estados       |      |           |
+|  +------------------+      +------------------+      |           |
+|                                                                   |
+|  +------------------+  +------------------+                       |
+|  |  buffer.c/h      |  |  netutils.c/h    |                       |
+|  |  - buffer circ.  |  |  - utilidades    |                       |
+|  |    con acceso     |  |    de red        |                       |
+|  |    directo        |  |                  |                       |
+|  +------------------+  +------------------+                       |
++------------------------------------------------------------------+
+
++------------------------------------------------------------------+
+|                        bin/client                                 |
+|                                                                   |
+|  +------------------+                                             |
+|  |  client.c        |                                             |
+|  |  - I/O bloqueante|                                             |
+|  |  - envía comando |                                             |
+|  |  - muestra resp. |                                             |
+|  +------------------+                                             |
++------------------------------------------------------------------+
+\end{verbatim}
+
+\subsection{Descripción de los componentes}
+
+\subsubsection{Selector de eventos (\texttt{selector.c/h})}
+
+El selector es el núcleo del multiplexado de E/S. Permite registrar
+descriptores de archivo con intereses de lectura/escritura y notifica
+mediante callbacks cuando los eventos ocurren. Soporta notificación de
+operaciones bloqueantes (como resolución de DNS) mediante señales.
+
+\textbf{Interfaz pública:}
+\begin{itemize}
+    \item \texttt{selector\_init()}: Inicializa la librería con una señal
+          para notificaciones internas.
+    \item \texttt{selector\_new(cantidad)}: Crea una nueva instancia de
+          selector con capacidad para \texttt{cantidad} descriptores.
+    \item \texttt{selector\_register()}: Registra un fd con un handler y
+          un interés inicial.
+    \item \texttt{selector\_select()}: Espera eventos y dispara los
+          callbacks correspondientes.
+    \item \texttt{selector\_notify\_block()}: Notifica al selector que
+          una operación bloqueante (ej: DNS) finalizó.
+\end{itemize}
+
+\subsubsection{Buffer circular (\texttt{buffer.c/h})}
+
+Buffer con acceso directo a memoria que mantiene punteros de lectura y
+escritura separados. Permite operaciones de I/O eficientes al exponer
+directamente las direcciones de memoria donde leer o escribir, evitando
+copias intermedias.
+
+\textbf{Características:}
+\begin{itemize}
+    \item Compactación automática cuando los punteros se igualan.
+    \item Sin asignaciones dinámicas de memoria (usa buffers pre-asignados).
+    \item Ideal para operaciones de \texttt{recv(2)} y \texttt{send(2)}
+          no bloqueantes.
+\end{itemize}
+
+\subsubsection{Máquina de estados (\texttt{stm.c/h})}
+
+Motor de máquina de estados genérico donde los eventos son los del
+selector (\texttt{on\_read\_ready}, \texttt{on\_write\_ready},
+\texttt{on\_block\_ready}). Cada estado define callbacks de llegada,
+salida y manejo de eventos.
+
+\textbf{Estados definidos para SOCKS5:}
+\begin{itemize}
+    \item \texttt{HELLO\_READ}, \texttt{HELLO\_WRITE}
+    \item \texttt{AUTH\_READ}, \texttt{AUTH\_WRITE}
+    \item \texttt{REQUEST\_READ}, \texttt{REQUEST\_RESOLV},
+          \texttt{REQUEST\_CONNECTING}, \texttt{REQUEST\_WRITE}
+    \item \texttt{COPY}
+    \item \texttt{DONE}, \texttt{ERROR}
+\end{itemize}
+
+\subsubsection{Parsers SOCKS5}
+
+\begin{itemize}
+    \item \textbf{hello.c/h}: Parser del mensaje HELLO (RFC 1928, sección 3).
+          Procesa versión, cantidad de métodos y lista de métodos de
+          autenticación. Incluye callback por método para selección dinámica.
+    \item \textbf{auth.c/h}: Parser de autenticación usuario/contraseña
+          (RFC 1929). Procesa los campos VER, ULEN, UNAME, PLEN, PASSWD.
+    \item \textbf{request.c/h}: Parser del mensaje REQUEST (RFC 1928,
+          sección 4). Soporta direcciones IPv4, IPv6 y FQDN. Incluye
+          serialización de respuestas con BND.ADDR.
+\end{itemize}
+
+\subsubsection{Servidor de monitoreo (\texttt{mng\_server.c/h})}
+
+Implementa el protocolo de monitoreo como una máquina de estados simple
+(\texttt{MNG\_READ} $\rightarrow$ \texttt{MNG\_EXECUTE} $\rightarrow$
+\texttt{MNG\_WRITE} $\rightarrow$ \texttt{MNG\_DONE}). Utiliza el mismo
+selector de eventos que el proxy SOCKS5, integrándose sin necesidad de
+hilos adicionales.
+
+\subsubsection{Cliente de monitoreo (\texttt{client.c})}
+
+Aplicación de línea de comandos con I/O bloqueante. Conecta por TCP al
+servidor de management, envía el comando y muestra la respuesta. Soporta
+los comandos \texttt{get-metrics}, \texttt{add-user} y \texttt{del-user}.
+
+\subsection{Diagrama de flujo de una conexión SOCKS5}
+
+\begin{verbatim}
+Cliente SOCKS5              Servidor Proxy              Servidor Origen
+      |                          |                            |
+      |--- HELLO (VER, NMETHODS) |                            |
+      |------------------------->|                            |
+      |                          |--- (selecciona método)     |
+      |<---- HELLO (VER, METHOD) |                            |
+      |                          |                            |
+      | (si METHOD = 0x02)       |                            |
+      |--- AUTH (VER, ULEN, ...) |                            |
+      |------------------------->|                            |
+      |                          |--- (valida credenciales)   |
+      |<---- AUTH (VER, STATUS)  |                            |
+      |                          |                            |
+      |--- REQUEST (CMD, ATYP,..)|                            |
+      |------------------------->|                            |
+      |                          |--- (resuelve FQDN si      |
+      |                          |     es necesario)          |
+      |                          |                            |
+      |                          |======= CONNECT ===========>|
+      |                          |<======= SYN-ACK ===========|
+      |                          |                            |
+      |<--- REQUEST (REP, BND)   |                            |
+      |                          |                            |
+      |=================== TÚNEL BIDIRECCIONAL ==============>|
+      |<====================================================>|
+      |                          |                            |
+\end{verbatim}
+
+% =============================================================================
+% FIN DEL DOCUMENTO
+% =============================================================================
+\end{document}
