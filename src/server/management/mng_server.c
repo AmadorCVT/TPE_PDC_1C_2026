@@ -52,13 +52,38 @@ mng_read(struct selector_key *key) {
     if (n > 0) {
         buffer_write_adv(&conn->read_buffer, n);
         
+        
         // Search for newline
         size_t read_bytes;
-        uint8_t *read_ptr = buffer_read_ptr(&conn->read_buffer, &read_bytes);
+        uint8_t *read_ptr = buffer_read_ptr(&conn->read_buffer, &read_bytes);    
+        
+        // Search for --auth flag
+        const char *auth_key = "--auth";
+        size_t auth_key_len = strlen(auth_key);
+        int found = 0;
+
+        if (auth_key_len <= read_bytes)
+        {
+            for (size_t i = 0; i < read_bytes - auth_key_len; i++)
+            {
+                if (memcmp(&read_ptr[i], auth_key, auth_key_len) == 0)
+                {
+                    found = 1;
+                    break;
+                }
+            }
+        }
+        
+        if (found == 0)
+        {
+            return MNG_ERROR;
+        }
+        
         for (size_t i = 0; i < read_bytes; i++) {
             if (read_ptr[i] == '\n') {
                 return MNG_EXECUTE;
             }
+
         }
         return MNG_READ;
     } else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
