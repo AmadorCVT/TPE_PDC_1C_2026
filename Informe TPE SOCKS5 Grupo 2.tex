@@ -8,6 +8,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage{lmodern}
 \usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
 \usepackage{geometry}
 \geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
 \usepackage{hyperref}
@@ -17,6 +18,7 @@
 \usepackage{enumitem}
 \usepackage{float}
 \usepackage{fancyhdr}
+\setlength{\headheight}{15pt}
 \usepackage{titlesec}
 \usepackage{booktabs}
 \usepackage{verbatim}
@@ -48,7 +50,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{Proxy SOCKS5}
-\fancyhead[R]{Protocolos de Comunicación --- 2026/1}
+\fancyhead[R]{Protocolos de Comunicación --- 2026}
 \fancyfoot[C]{\thepage}
 
 % ---- Redefinir títulos de secciones ----
@@ -57,6 +59,7 @@
 
 % ---- Portada ----
 \title{\textbf{Trabajo Práctico Especial}\\[1cm]
+       \includegraphics[width=0.5\textwidth]{scripts/results/itba.png}\\[1cm]
        \Large{Proxy SOCKS5}\\[0.3cm]
        \large{Protocolos de Comunicación 2026}}
 
@@ -66,7 +69,7 @@
         Amador Vallejo Tapia - 65454\\[0.1cm]
         Manuel García Puente - 65505\\[8cm]
         \textbf{Instituto Tecnológico de Buenos Aires}}
-\date{\today}
+\date{14 de julio de 2026}
 
 \begin{document}
 
@@ -75,8 +78,6 @@
 \newpage
 
 % =============================================================================
-\section*{Índice}
-\addcontentsline{toc}{section}{Índice}
 \tableofcontents
 \newpage
 
