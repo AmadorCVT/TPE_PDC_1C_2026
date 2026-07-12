@@ -32,6 +32,8 @@ struct mng_connection {
     struct state_machine stm;
 };
 
+static char mng_secret[256];
+
 #define ATTACHMENT(key) ((struct mng_connection *)(key)->data)
 
 static void
@@ -51,39 +53,14 @@ mng_read(struct selector_key *key) {
     const ssize_t n = recv(key->fd, ptr, size, 0);
     if (n > 0) {
         buffer_write_adv(&conn->read_buffer, n);
-        
-        
+
         // Search for newline
         size_t read_bytes;
-        uint8_t *read_ptr = buffer_read_ptr(&conn->read_buffer, &read_bytes);    
-        
-        // Search for --auth flag
-        const char *auth_key = "--auth";
-        size_t auth_key_len = strlen(auth_key);
-        int found = 0;
-
-        if (auth_key_len <= read_bytes)
-        {
-            for (size_t i = 0; i < read_bytes - auth_key_len; i++)
-            {
-                if (memcmp(&read_ptr[i], auth_key, auth_key_len) == 0)
-                {
-                    found = 1;
-                    break;
-                }
-            }
-        }
-        
-        if (found == 0)
-        {
-            return MNG_ERROR;
-        }
-        
+        uint8_t *read_ptr = buffer_read_ptr(&conn->read_buffer, &read_bytes);
         for (size_t i = 0; i < read_bytes; i++) {
             if (read_ptr[i] == '\n') {
                 return MNG_EXECUTE;
             }
-
         }
         return MNG_READ;
     } else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
@@ -95,10 +72,10 @@ mng_read(struct selector_key *key) {
 static void
 mng_execute_arrival(const unsigned state, struct selector_key *key) {
     struct mng_connection *conn = ATTACHMENT(key);
-    
+
     size_t read_bytes;
     uint8_t *read_ptr = buffer_read_ptr(&conn->read_buffer, &read_bytes);
-    
+
     size_t line_len = 0;
     size_t total_consumed = 0;
     for (size_t i = 0; i < read_bytes; i++) {
@@ -108,7 +85,7 @@ mng_execute_arrival(const unsigned state, struct selector_key *key) {
             break;
         }
     }
-    
+
     char line[MNG_BUFFER_SIZE];
     if (line_len >= MNG_BUFFER_SIZE) {
         snprintf((char *)conn->raw_buff_write, MNG_BUFFER_SIZE, "-ERR line too long\r\n");
@@ -117,57 +94,82 @@ mng_execute_arrival(const unsigned state, struct selector_key *key) {
         selector_set_interest_key(key, OP_WRITE);
         return;
     }
-    
+
     memcpy(line, read_ptr, line_len);
     line[line_len] = '\0';
-    
+
     if (line_len > 0 && line[line_len - 1] == '\r') {
         line[line_len - 1] = '\0';
     }
-    
+
     buffer_read_adv(&conn->read_buffer, total_consumed);
-    
+
     char response[MNG_BUFFER_SIZE];
     memset(response, 0, sizeof(response));
-    
-    char cmd[128] = {0};
-    int parsed = sscanf(line, "%127s", cmd);
-    if (parsed <= 0) {
-        snprintf(response, sizeof(response), "-ERR empty command\r\n");
-    } else if (strcmp(cmd, "GET_METRICS") == 0) {
-        unsigned active = socksv5_active_connections();
-        unsigned long long historical = socksv5_historical_connections();
-        unsigned long long bytes = socksv5_bytes_transferred();
-        snprintf(response, sizeof(response), "+OK ACT:%u HIST:%llu BYTES:%llu\r\n", active, historical, bytes);
-    } else if (strcmp(cmd, "ADD_USER") == 0) {
-        char username[256] = {0};
-        char password[256] = {0};
-        int n_args = sscanf(line, "%*s %255s %255s", username, password);
-        if (n_args == 2) {
-            if (socks5_add_user(username, password)) {
-                snprintf(response, sizeof(response), "+OK\r\n");
-            } else {
-                snprintf(response, sizeof(response), "-ERR unable to add user\r\n");
-            }
-        } else {
-            snprintf(response, sizeof(response), "-ERR invalid arguments\r\n");
-        }
-    } else if (strcmp(cmd, "DEL_USER") == 0) {
-        char username[256] = {0};
-        int n_args = sscanf(line, "%*s %255s", username);
-        if (n_args == 1) {
-            if (socks5_remove_user(username) == 0) {
-                snprintf(response, sizeof(response), "+OK\r\n");
-            } else {
-                snprintf(response, sizeof(response), "-ERR user not found\r\n");
-            }
-        } else {
-            snprintf(response, sizeof(response), "-ERR invalid arguments\r\n");
-        }
+
+    // cada línea empieza con el secreto de management; %n da el offset
+    // donde terminó ese primer token, para poder ubicar el resto de la línea
+    char provided_secret[256] = {0};
+    int provided_len = 0;
+    sscanf(line, "%255s%n", provided_secret, &provided_len);
+
+    if (provided_len == 0 || strcmp(provided_secret, mng_secret) != 0) {
+        snprintf(response, sizeof(response), "-ERR unauthorized\r\n");
     } else {
-        snprintf(response, sizeof(response), "-ERR unknown command\r\n");
+        const char *rest = line + provided_len;
+        while (*rest == ' ') {
+            rest++;
+        }
+
+        char cmd[128] = {0};
+        int parsed = sscanf(rest, "%127s", cmd);
+        if (parsed <= 0) {
+            snprintf(response, sizeof(response), "-ERR empty command\r\n");
+        } else if (strcmp(cmd, "GET_METRICS") == 0) {
+            unsigned active = socksv5_active_connections();
+            unsigned long long historical = socksv5_historical_connections();
+            unsigned long long bytes = socksv5_bytes_transferred();
+            snprintf(response, sizeof(response), "+OK ACT:%u HIST:%llu BYTES:%llu\r\n", active, historical, bytes);
+        } else if (strcmp(cmd, "ADD_USER") == 0) {
+            char username[256] = {0};
+            char password[256] = {0};
+            int n_args = sscanf(rest, "%*s %255s %255s", username, password);
+            if (n_args == 2) {
+                if (socks5_add_user(username, password)) {
+                    snprintf(response, sizeof(response), "+OK\r\n");
+                } else {
+                    snprintf(response, sizeof(response), "-ERR unable to add user\r\n");
+                }
+            } else {
+                snprintf(response, sizeof(response), "-ERR invalid arguments\r\n");
+            }
+        } else if (strcmp(cmd, "DEL_USER") == 0) {
+            char username[256] = {0};
+            int n_args = sscanf(rest, "%*s %255s", username);
+            if (n_args == 1) {
+                if (socks5_remove_user(username) == 0) {
+                    snprintf(response, sizeof(response), "+OK\r\n");
+                } else {
+                    snprintf(response, sizeof(response), "-ERR user not found\r\n");
+                }
+            } else {
+                snprintf(response, sizeof(response), "-ERR invalid arguments\r\n");
+            }
+        } else if (strcmp(cmd, "SET_SECRET") == 0) {
+            char new_secret[256] = {0};
+            int n_args = sscanf(rest, "%*s %255s", new_secret);
+            if (n_args == 1) {
+                strncpy(mng_secret, new_secret, sizeof(mng_secret) - 1);
+                mng_secret[sizeof(mng_secret) - 1] = '\0';
+                snprintf(response, sizeof(response), "+OK\r\n");
+            } else {
+                snprintf(response, sizeof(response), "-ERR invalid arguments\r\n");
+            }
+        } else {
+            snprintf(response, sizeof(response), "-ERR unknown command\r\n");
+        }
     }
-    
+
     size_t resp_len = strlen(response);
     size_t write_avail;
     uint8_t *write_ptr = buffer_write_ptr(&conn->write_buffer, &write_avail);
@@ -302,7 +304,12 @@ mng_passive_accept(struct selector_key *key) {
 }
 
 int
-mng_server_init(const char *addr, unsigned port, fd_selector selector) {
+mng_server_init(const char *addr, unsigned port, fd_selector selector, const char *secret) {
+    if (secret != NULL) {
+        strncpy(mng_secret, secret, sizeof(mng_secret) - 1);
+        mng_secret[sizeof(mng_secret) - 1] = '\0';
+    }
+
     struct sockaddr_in addr_in;
     memset(&addr_in, 0, sizeof(addr_in));
     addr_in.sin_family = AF_INET;

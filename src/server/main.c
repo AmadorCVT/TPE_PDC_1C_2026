@@ -133,12 +133,15 @@ main(const int argc, char **argv) {
         goto finally;
     }
 
-    mng_server = mng_server_init(args.mng_addr, args.mng_port, selector);
+    mng_server = mng_server_init(args.mng_addr, args.mng_port, selector, args.mng_secret);
     if(mng_server < 0) {
         err_msg = "unable to initialize management server";
         goto finally;
     }
     fprintf(stdout, "Management listening on TCP port %d\n", args.mng_port);
+    if(strcmp(args.mng_secret, "changeme") == 0) {
+        fprintf(stderr, "warning: using default management secret 'changeme', set one with -A\n");
+    }
 
     bool draining = false;
     while(!force_shutdown) {

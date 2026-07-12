@@ -12,19 +12,22 @@ print_usage(const char *progname) {
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -L <address>   IP address of management server (default: 127.0.0.1)\n");
     fprintf(stderr, "  -P <port>      Port of management server (default: 8080)\n");
+    fprintf(stderr, "  -A <secret>    Management protocol secret (default: changeme)\n");
     fprintf(stderr, "Commands:\n");
     fprintf(stderr, "  get-metrics\n");
     fprintf(stderr, "  add-user <username> <password>\n");
     fprintf(stderr, "  del-user <username>\n");
+    fprintf(stderr, "  set-secret <new_secret>  (uses -A as the current secret)\n");
 }
 
 int
 main(int argc, char **argv) {
     char *mng_addr = "127.0.0.1";
     unsigned short mng_port = 8080;
+    char *mng_secret = "changeme";
 
     int c;
-    while ((c = getopt(argc, argv, "L:P:")) != -1) {
+    while ((c = getopt(argc, argv, "L:P:A:")) != -1) {
         switch (c) {
             case 'L':
                 mng_addr = optarg;
@@ -39,6 +42,9 @@ main(int argc, char **argv) {
                 mng_port = (unsigned short)port;
                 break;
             }
+            case 'A':
+                mng_secret = optarg;
+                break;
             default:
                 print_usage(argv[0]);
                 return 1;
@@ -58,19 +64,25 @@ main(int argc, char **argv) {
             print_usage(argv[0]);
             return 1;
         }
-        snprintf(cmd_str, sizeof(cmd_str), "GET_METRICS\n");
+        snprintf(cmd_str, sizeof(cmd_str), "%s GET_METRICS\n", mng_secret);
     } else if (strcmp(argv[optind], "add-user") == 0) {
         if (optind + 3 != argc) {
             print_usage(argv[0]);
             return 1;
         }
-        snprintf(cmd_str, sizeof(cmd_str), "ADD_USER %s %s\n", argv[optind + 1], argv[optind + 2]);
+        snprintf(cmd_str, sizeof(cmd_str), "%s ADD_USER %s %s\n", mng_secret, argv[optind + 1], argv[optind + 2]);
     } else if (strcmp(argv[optind], "del-user") == 0) {
         if (optind + 2 != argc) {
             print_usage(argv[0]);
             return 1;
         }
-        snprintf(cmd_str, sizeof(cmd_str), "DEL_USER %s\n", argv[optind + 1]);
+        snprintf(cmd_str, sizeof(cmd_str), "%s DEL_USER %s\n", mng_secret, argv[optind + 1]);
+    } else if (strcmp(argv[optind], "set-secret") == 0) {
+        if (optind + 2 != argc) {
+            print_usage(argv[0]);
+            return 1;
+        }
+        snprintf(cmd_str, sizeof(cmd_str), "%s SET_SECRET %s\n", mng_secret, argv[optind + 1]);
     } else {
         print_usage(argv[0]);
         return 1;
