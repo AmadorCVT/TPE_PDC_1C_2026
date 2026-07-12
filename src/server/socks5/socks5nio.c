@@ -638,7 +638,7 @@ auth_write(struct selector_key *key) {
 // REQUEST
 ////////////////////////////////////////////////////////////////////
 
-/** registra un acceso exitoso al destino en access.log */
+/** registra un acceso exitoso al destino en stdout (redirigible a archivo) */
 static void
 log_access(struct socks5 *s) {
     const time_t now = time(NULL);
@@ -654,13 +654,9 @@ log_access(struct socks5 *s) {
 
     const char *fqdn = (s->dest_fqdn[0] != '\0') ? s->dest_fqdn : "-";
 
-    FILE *f = fopen("access.log", "a");
-    if (f == NULL) {
-        return;
-    }
-    fprintf(f, "[%s] User: %s | FQDN: %s | IP Destino: %s\n",
+    fprintf(stdout, "[%s] User: %s | FQDN: %s | IP Destino: %s\n",
             timestamp, s->client_username, fqdn, dest_ip);
-    fclose(f);
+    fflush(stdout);
 }
 
 /** traduce un errno de connect() al código REP de SOCKS5 */
@@ -1063,6 +1059,38 @@ copy_init(const unsigned state, struct selector_key *key) {
 }
 
 /**
+ * Intenta vaciar el write-buffer de una mitad hacia su fd sin esperar a
+ * select(OP_WRITE). Si no puede escribir todo (parcial / EAGAIN), el resto
+ * queda en el buffer y copy_compute_interests suscribirá OP_WRITE.
+ * @return true si el peer sigue pudiendo escribir; false si hubo error fatal.
+ */
+static bool
+copy_try_flush(struct copy *peer) {
+    if (*peer->fd == -1 || !(peer->duplex & OP_WRITE) ||
+        !buffer_can_read(peer->wb)) {
+        return true;
+    }
+
+    size_t   size;
+    uint8_t *ptr = buffer_read_ptr(peer->wb, &size);
+    const ssize_t n = send(*peer->fd, ptr, size, MSG_NOSIGNAL);
+
+    if (n >= 0) {
+        buffer_read_adv(peer->wb, n);
+        if (n > 0) {
+            bytes_transferred += n;
+        }
+        return true;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        return true;
+    }
+    peer->duplex &= ~OP_WRITE;
+    shutdown(*peer->fd, SHUT_WR);
+    return false;
+}
+
+/**
  * Propaga cierres parciales y decide si terminamos.
  * Si una mitad dejó de leer y su buffer ya está vacío, no llegará más data al
  * otro lado: cerramos su escritura. Cuando ambas mitades quedan sin intereses,
@@ -1104,6 +1132,8 @@ copy_read(struct selector_key *key) {
     if (n > 0) {
         buffer_write_adv(d->rb, n);
         bytes_transferred += n;
+        /* Optimistic write: select -> read -> write (sin select intermedio) */
+        copy_try_flush(d->other);
     } else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
         // EOF o error de lectura: cerramos la mitad de lectura
         d->duplex &= ~OP_READ;
@@ -1114,20 +1144,8 @@ copy_read(struct selector_key *key) {
 
 static unsigned
 copy_write(struct selector_key *key) {
-    struct copy  *d   = copy_ptr(key);
-    size_t        size;
-    uint8_t      *ptr  = buffer_read_ptr(d->wb, &size);
-    const ssize_t n    = send(key->fd, ptr, size, MSG_NOSIGNAL);
-
-    if (n >= 0) {
-        buffer_read_adv(d->wb, n);
-        if (n > 0) {
-            bytes_transferred += n;
-        }
-    } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        d->duplex &= ~OP_WRITE;
-        shutdown(*d->fd, SHUT_WR);
-    }
+    struct copy *d = copy_ptr(key);
+    copy_try_flush(d);
     return copy_after(key, d);
 }
 

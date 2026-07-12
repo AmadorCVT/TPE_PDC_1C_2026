@@ -330,7 +330,7 @@ mng_server_init(const char *addr, unsigned port, fd_selector selector, const cha
         return -1;
     }
     
-    if (listen(server, 20) < 0) {
+    if (listen(server, SOMAXCONN) < 0) {
         close(server);
         return -1;
     }

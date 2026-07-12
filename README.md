@@ -2,37 +2,31 @@
 
 ## 1. Ubicación de los materiales
 
-El proyecto está organizado de la siguiente manera:
+- **`src/server/`** — Servidor proxy SOCKS5 (`socks5/`) y protocolo de management (`management/`).
+- **`src/client/`** — Cliente CLI de management.
+- **`src/shared/`** — Infraestructura compartida (selector, buffers, STM).
+- **`scripts/`** — Pruebas de estrés y gráficos (`run_stress.sh`, resultados en `scripts/results/`).
+- **`informe.tex`** — Fuente LaTeX del informe (PDF generado aparte).
+- **`AGENTS.md`** — Convenciones del proyecto.
 
-- **`src/server/`** — Código fuente del servidor proxy SOCKS5, incluyendo el módulo de autenticación, el protocolo SOCKS5 y el servidor de management.
-- **`src/client/`** — Código fuente del cliente de management para administrar y monitorear el servidor desde la terminal.
-- **`src/shared/`** — Recursos compartidos entre servidor y cliente (selector de eventos, buffers, parsers y utilidades de red).
-- **Raíz del proyecto** — Informe final del trabajo práctico en formato PDF.
-
-## 2. Procedimiento de compilación
-
-El proyecto utiliza **GNU Make** como sistema de compilación. Para compilar todo desde cero, ejecutar desde la raíz del repositorio:
+## 2. Compilación
 
 ```bash
 make clean && make all
 ```
 
-## 3. Ubicación de los artefactos generados
-
-Los ejecutables compilados se guardan automáticamente en el directorio **`bin/`**:
+## 3. Artefactos
 
 | Artefacto | Ruta |
 |-----------|------|
 | Servidor SOCKS5 | `bin/server` |
 | Cliente de management | `bin/client` |
 
-Los archivos objeto intermedios (`.o`) se almacenan en `obj/` durante la compilación.
+Objetos intermedios en `obj/`.
 
-## 4. Instrucciones de ejecución y opciones
+## 4. Ejecución
 
-### Servidor SOCKS5
-
-Para levantar el servidor con la configuración por defecto:
+### Servidor
 
 ```bash
 ./bin/server
@@ -40,56 +34,49 @@ Para levantar el servidor con la configuración por defecto:
 
 Por defecto:
 
-- El proxy SOCKS5 escucha en el puerto **1080** (todas las interfaces, `0.0.0.0`).
-- El servidor de management escucha en el puerto **8080** (interfaz local, `127.0.0.1`).
+- SOCKS5 en puerto **1080** (dual-stack).
+- Management en **127.0.0.1:8080**.
+- Secreto de management: **`changeme`** (cambiar con `-A`).
 
-El puerto del servicio de management puede cambiarse con la opción **`-P`**. Otras opciones del servidor incluyen `-l` (dirección SOCKS), `-L` (dirección de management), `-p` (puerto SOCKS) y `-u` (usuarios iniciales en formato `usuario:contraseña`).
+Opciones relevantes: `-l`, `-p`, `-L`, `-P`, `-A <secreto>`, `-u usuario:contraseña`.
 
-Ejemplo con puerto de management personalizado:
+Los accesos exitosos se escriben a **stdout**. Para guardarlos:
 
 ```bash
-./bin/server -P 9090
+./bin/server -A mi_secreto -u admin:admin123 > access.log
 ```
 
-### Cliente de Management
-
-Sintaxis general:
+### Cliente de management
 
 ```bash
 ./bin/client [opciones] <comando>
 ```
 
-**Opciones:**
-
-| Opción | Descripción | Valor por defecto |
-|--------|-------------|-------------------|
-| `-L <ip>` | Dirección IP del servidor de management | `127.0.0.1` |
-| `-P <puerto>` | Puerto del servidor de management | `8080` |
-
-**Comandos disponibles:**
+| Opción | Descripción | Default |
+|--------|-------------|---------|
+| `-L <ip>` | IP del management | `127.0.0.1` |
+| `-P <puerto>` | Puerto de management | `8080` |
+| `-A <secreto>` | Secreto del protocolo | `changeme` |
 
 | Comando | Descripción |
 |---------|-------------|
-| `get-metrics` | Obtiene las métricas actuales del servidor |
-| `add-user <user> <pass>` | Agrega un usuario autorizado para usar el proxy |
-| `del-user <user>` | Elimina un usuario previamente registrado |
+| `get-metrics` | Métricas (activas, históricas, bytes) |
+| `add-user <user> <pass>` | Alta de usuario SOCKS |
+| `del-user <user>` | Baja de usuario |
+| `set-secret <nuevo>` | Cambia el secreto (usa `-A` como actual) |
 
-**Ejemplos de uso:**
-
-Consultar métricas del servidor local:
-
-```bash
-./bin/client get-metrics
-```
-
-Agregar un usuario al proxy:
+Ejemplos:
 
 ```bash
-./bin/client add-user alice secret123
+./bin/client -A mi_secreto get-metrics
+./bin/client -A mi_secreto add-user alice secret123
+./bin/client -A mi_secreto -L 192.168.1.10 -P 9090 del-user alice
 ```
 
-Eliminar un usuario y conectarse a un servidor de management en otro host/puerto:
+### Estrés
 
 ```bash
-./bin/client -L 192.168.1.10 -P 9090 del-user alice
+bash scripts/run_stress.sh
 ```
+
+Genera CSV y PNG en `scripts/results/`.

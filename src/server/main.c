@@ -91,7 +91,7 @@ main(const int argc, char **argv) {
         goto finally;
     }
 
-    if(listen(server, 20) < 0) {
+    if(listen(server, SOMAXCONN) < 0) {
         err_msg = "unable to listen";
         goto finally;
     }
