@@ -461,20 +461,51 @@ $ bash scripts/run_stress.sh
 \subsection{Requisitos}
 
 \begin{itemize}
-    \item Linux con GCC compatible con C11, GNU Make y pthreads.
+    \item Linux con GCC compatible con C11 (o Clang), GNU Make y pthreads.
+    \item Python~3 con \texttt{matplotlib} y \texttt{numpy} (opcional, para las pruebas de estrés y gráficos).
+    \item \texttt{curl} (opcional, para verificar el proxy manualmente).
 \end{itemize}
 
 \subsection{Compilación}
 
-\begin{lstlisting}
+Para compilar el servidor y el cliente:
+
+\begin{lstlisting}[caption=Compilar el proyecto]
 $ make clean && make all
 \end{lstlisting}
 
-Artefactos: \texttt{bin/server}, \texttt{bin/client}. Objetos en \texttt{obj/}.
+Los artefactos generados son:
 
-\begin{lstlisting}
+\begin{itemize}
+    \item \texttt{bin/server} --- servidor proxy SOCKS5.
+    \item \texttt{bin/client} --- cliente de monitoreo y configuración.
+\end{itemize}
+
+Los objetos intermedios se depositan en \texttt{obj/}. Para limpiar:
+
+\begin{lstlisting}[caption=Limpiar artefactos de compilación]
 $ make clean
 \end{lstlisting}
+
+\subsection{Verificación rápida}
+
+Una vez compilado, se puede verificar que el servidor arranca correctamente:
+
+\begin{lstlisting}[caption=Verificación de arranque]
+$ ./bin/server -A test123
+Listening on TCP port 1080
+Management listening on TCP port 8080
+\end{lstlisting}
+
+Para detenerlo: \texttt{Ctrl+C} (SIGINT) realiza un graceful shutdown.
+
+\subsection{Ejecución de pruebas de estrés (opcional)}
+
+\begin{lstlisting}[caption=Ejecutar harness de estrés]
+$ bash scripts/run_stress.sh
+\end{lstlisting}
+
+Requiere Python~3 con \texttt{matplotlib} y \texttt{numpy}. Los resultados se guardan en \texttt{scripts/results/}.
 
 % =============================================================================
 \section{Instrucciones para la configuración}
@@ -488,7 +519,7 @@ $ make clean
   -p <puerto>      Puerto SOCKS (defecto: 1080).
   -P <puerto>      Puerto management (defecto: 8080).
   -A <secreto>     Secreto de management (defecto: changeme).
-  -u <usr>:<pass>  Usuario inicial (hasta 10).
+  -u <usr>:<pass>  Usuario inicial (puede repetirse, hasta 10).
   -v               Versión.
 \end{lstlisting}
 
@@ -504,36 +535,50 @@ $ make clean
 
 Los accesos se imprimen en stdout del servidor; para persistirlos:
 
-\begin{lstlisting}
+\begin{lstlisting}[caption=Redirección de logs a archivo]
 $ ./bin/server -A mi_secreto -u admin:admin123 > access.log 2> server.err
 \end{lstlisting}
 
 % =============================================================================
 \section{Ejemplos de configuración y monitoreo}
 
-\subsection{Escenario 1: monitoreo local}
+\subsection{Escenario 1: cambio de secreto en caliente}
 
 \begin{lstlisting}
-$ ./bin/server -A mi_secreto -u admin:admin123
+$ ./bin/server -A secreto_inicial -u admin:admin123
 
-$ ./bin/client -A mi_secreto get-metrics
+$ ./bin/client -A secreto_inicial set-secret nuevo_secreto
+secreto actualizado
+
+$ ./bin/client -A secreto_inicial get-metrics
+error: unauthorized
+
+$ ./bin/client -A nuevo_secreto get-metrics
 conexiones activas: 0
 conexiones historicas: 0
 bytes transferidos: 0
-
-$ ./bin/client -A mi_secreto add-user desarrollador pass123
-usuario agregado
-
-$ curl --socks5 127.0.0.1:1080 --proxy-user desarrollador:pass123 \
-       https://httpbin.org/ip
-
-$ ./bin/client -A mi_secreto get-metrics
-conexiones activas: 0
-conexiones historicas: 1
-bytes transferidos: 2048
 \end{lstlisting}
 
-\subsection{Escenario 2: auditoría de accesos}
+\subsection{Escenario 2: múltiples usuarios y verificación de error}
+
+\begin{lstlisting}
+$ ./bin/client -A changeme add-user alberto pass1
+usuario agregado
+
+$ ./bin/client -A changeme add-user beatriz pass2
+usuario agregado
+
+$ ./bin/client -A changeme add-user carlos pass3
+usuario agregado
+
+$ ./bin/client -A changeme del-user alberto
+usuario eliminado
+
+$ ./bin/client -A changeme del-user alberto
+error: user not found
+\end{lstlisting}
+
+\subsection{Escenario 3: auditoría de accesos}
 
 \begin{lstlisting}
 $ ./bin/server -A mi_secreto -u admin:admin123 > access.log
