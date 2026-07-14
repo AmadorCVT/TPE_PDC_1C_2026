@@ -170,7 +170,9 @@ CRLF        = CR LF
     \item \textbf{GET\_METRICS}
     \begin{itemize}
         \item Sintaxis: \texttt{<secreto> GET\_METRICS\textbackslash n}
-        \item Respuesta: \texttt{+OK ACT:<n> HIST:<n> BYTES:<n>\textbackslash r\textbackslash n}
+        \item El cliente imprime tres líneas con las métricas obtenidas:
+              \texttt{conexiones activas: <n>}, \texttt{conexiones historicas: <n>},
+              \texttt{bytes transferidos: <n>}.
         \item \texttt{ACT}: conexiones SOCKS5 activas (ya aceptadas y en curso).
         \item \texttt{HIST}: conexiones históricas desde el arranque.
         \item \texttt{BYTES}: bytes transferidos en el túnel (ambos sentidos).
@@ -180,46 +182,56 @@ CRLF        = CR LF
     \begin{itemize}
         \item Sintaxis: \texttt{<secreto> ADD\_USER <usuario> <contraseña>\textbackslash n}
         \item Hay un espacio entre el usuario y la contraseña.
-        \item Respuesta: \texttt{+OK\textbackslash r\textbackslash n} o
-              \texttt{-ERR <motivo>\textbackslash r\textbackslash n}
+        \item En caso de éxito el cliente imprime \texttt{usuario agregado}.
+        \item En caso de error el cliente imprime \texttt{error: <motivo>} por stderr.
         \item Máximo 10 usuarios; cada campo hasta 255 caracteres.
     \end{itemize}
 
     \item \textbf{DEL\_USER}
     \begin{itemize}
         \item Sintaxis: \texttt{<secreto> DEL\_USER <usuario>\textbackslash n}
-        \item Respuesta: \texttt{+OK\textbackslash r\textbackslash n} o
-              \texttt{-ERR user not found\textbackslash r\textbackslash n}
+        \item En caso de éxito el cliente imprime \texttt{usuario eliminado}.
+        \item En caso de error el cliente imprime \texttt{error: user not found} por stderr.
     \end{itemize}
 
     \item \textbf{SET\_SECRET}
     \begin{itemize}
         \item Sintaxis: \texttt{<secreto> SET\_SECRET <nuevo\_secreto>\textbackslash n}
         \item Cambia el secreto de management en caliente.
-        \item Respuesta: \texttt{+OK\textbackslash r\textbackslash n}
+        \item En caso de éxito el cliente imprime \texttt{secreto actualizado}.
     \end{itemize}
 \end{enumerate}
 
 \subsubsection{Flujo de una sesión típica}
 
-\begin{lstlisting}[caption=Ejemplo de sesión de monitoreo]
-Cliente:                              Servidor:
-|  CONECTAR (TCP)                     |
-|------------------------------------>|
-|  changeme GET_METRICS\n             |
-|------------------------------------>|
-|                                     |  +OK ACT:3 HIST:150 BYTES:1048576\r\n
-|<------------------------------------|
-|  changeme ADD_USER alberto pass123\n|
-|------------------------------------>|
-|                                     |  +OK\r\n
-|<------------------------------------|
-|  changeme DEL_USER alberto\n        |
-|------------------------------------>|
-|                                     |  +OK\r\n
-|<------------------------------------|
-|  CERRAR CONEXIÓN                    |
-|------------------------------------>|
+A continuación se muestra un ejemplo de una sesión de monitoreo utilizando el
+cliente provisto. Nótese que el cliente traduce internamente las respuestas del
+protocolo (\texttt{+OK ...\textbackslash r\textbackslash n}) a mensajes legibles
+para el usuario; no se vuelca el formato de red a la consola.
+
+\begin{lstlisting}[caption=Ejemplo de sesión de monitoreo con el cliente]
+$ ./bin/client -A changeme get-metrics
+conexiones activas: 3
+conexiones historicas: 150
+bytes transferidos: 1048576
+
+$ ./bin/client -A changeme add-user alberto pass123
+usuario agregado
+
+$ ./bin/client -A changeme del-user alberto
+usuario eliminado
+\end{lstlisting}
+
+El protocolo subyacente intercambia las siguientes líneas (no visibles para el
+usuario del cliente):
+
+\begin{lstlisting}[caption=Formato de red subyacente (wire format)]
+>> changeme GET_METRICS\n
+<< +OK ACT:3 HIST:150 BYTES:1048576\r\n
+>> changeme ADD_USER alberto pass123\n
+<< +OK\r\n
+>> changeme DEL_USER alberto\n
+<< +OK\r\n
 \end{lstlisting}
 
 \subsection{Aplicación cliente de monitoreo}
