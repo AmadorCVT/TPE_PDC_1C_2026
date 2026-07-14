@@ -169,7 +169,7 @@ CRLF        = CR LF
 \begin{enumerate}
     \item \textbf{GET\_METRICS}
     \begin{itemize}
-        \item Sintaxis: \texttt{<secreto> GET\_METRICS\textbackslash n}
+        \item Sintaxis: \verb|<secreto> GET_METRICS\n|
         \item El cliente imprime tres líneas con las métricas obtenidas:
               \texttt{conexiones activas: <n>}, \texttt{conexiones historicas: <n>},
               \texttt{bytes transferidos: <n>}.
@@ -180,7 +180,7 @@ CRLF        = CR LF
 
     \item \textbf{ADD\_USER}
     \begin{itemize}
-        \item Sintaxis: \texttt{<secreto> ADD\_USER <usuario> <contraseña>\textbackslash n}
+        \item Sintaxis: \verb|<secreto> ADD_USER <usuario> <contraseña>\n|
         \item Hay un espacio entre el usuario y la contraseña.
         \item En caso de éxito el cliente imprime \texttt{usuario agregado}.
         \item En caso de error el cliente imprime \texttt{error: <motivo>} por stderr.
@@ -189,14 +189,14 @@ CRLF        = CR LF
 
     \item \textbf{DEL\_USER}
     \begin{itemize}
-        \item Sintaxis: \texttt{<secreto> DEL\_USER <usuario>\textbackslash n}
+        \item Sintaxis: \verb|<secreto> DEL_USER <usuario>\n|
         \item En caso de éxito el cliente imprime \texttt{usuario eliminado}.
         \item En caso de error el cliente imprime \texttt{error: user not found} por stderr.
     \end{itemize}
 
     \item \textbf{SET\_SECRET}
     \begin{itemize}
-        \item Sintaxis: \texttt{<secreto> SET\_SECRET <nuevo\_secreto>\textbackslash n}
+        \item Sintaxis: \verb|<secreto> SET_SECRET <nuevo_secreto>\n|
         \item Cambia el secreto de management en caliente.
         \item En caso de éxito el cliente imprime \texttt{secreto actualizado}.
     \end{itemize}
