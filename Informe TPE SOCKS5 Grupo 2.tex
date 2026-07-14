@@ -353,20 +353,27 @@ El management escucha solo en IPv4 (\texttt{AF\_INET}).
 % =============================================================================
 \section{Conclusiones}
 
-Se entregó un proxy SOCKS5 monohilo funcional sobre I/O no bloqueante multiplexada,
-con autenticación RFC~1929 opcional según usuarios registrados, destinos IPv4/IPv6/FQDN,
-reporte de errores del protocolo, graceful shutdown y un protocolo de management
-propio con autenticación por secreto compartido.
+El desarrollo de este trabajo práctico permitió consolidar los conocimientos teóricos 
+adquiridos a lo largo del cuatrimestre. A través de la implementación del servidor 
+proxy SOCKS5, se lograron afianzar conceptos como la comunicación entre clientes y 
+servidores, el funcionamiento de los protocolos de aplicación y transporte, y la 
+programación avanzada con sockets activos y pasivos empleando selectores en un entorno 
+no bloqueante. Asimismo, la práctica de lectura e interpretación de especificaciones 
+RFC representó un pilar fundamental para lograr que el sistema se comunicara de forma 
+correcta dentro de una arquitectura estructurada mediante máquinas de estados.
 
-El diseño alrededor de una máquina de estados por conexión y buffers circulares
-permitió manejar lecturas/escrituras parciales y el túnel COPY de forma ordenada.
-Las pruebas de estrés muestran que se cumple el piso de 500 conexiones concurrentes
-de la consigna; el límite práctico actual está ligado a la capacidad del selector.
+Por otro lado, se destaca la recomendación de adoptar un proceso de desarrollo progresivo
+e incremental, priorizando siempre la obtención de un servidor funcional antes de añadir 
+nuevas características. Esta estrategia mitigó potenciales frustraciones a medida 
+que aumentaba la complejidad y favoreció una comprensión mucho más profunda de cada 
+funcionalidad  incorporada. En este sentido, los códigos base provistos por la cátedra 
+resultaron de gran ayuda al aportar infraestructuras esenciales que optimizaron el 
+tiempo de trabajo, permitiendo que el foco se mantuviera en el estudio de su correcta 
+aplicación.
 
-Como aprendizaje principal queda la importancia de no introducir round-trips
-artificiales en el event loop (write optimista) y de documentar con precisión el
-protocolo de administración: terminadores, autenticación y semántica de métricas
-frente a conceptos del SO como el backlog de \texttt{listen}.
+Como balance final, el proyecto cumplió con el objetivo de entregar un proxy SOCKS5 
+monohilo funcional sobre entrada/salida no bloqueante multiplexada, optimizado mediante 
+escrituras inmediatas para evitar demoras artificiales en el bucle de eventos.
 
 % =============================================================================
 \section{Ejemplos de prueba}
